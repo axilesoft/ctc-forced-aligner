@@ -25,7 +25,7 @@ def cli():
     parser = argparse.ArgumentParser()
     parser.add_argument("--audio_path", help="path of the audio file", required=True)
     parser.add_argument(
-        "--text_path", help="path of the text to be aligned", required=True
+        "--text_path", help="path of the text to be aligned", 
     )
 
     parser.add_argument(
@@ -128,6 +128,7 @@ def cli():
     )
     args = parser.parse_args()
 
+    print("Loading model...")
     model, tokenizer, dictionary = load_alignment_model(
         args.device,
         args.alignment_model,
@@ -135,19 +136,35 @@ def cli():
         TORCH_DTYPES[args.compute_dtype],
     )
 
+    print(f"Loading audio {args.audio_path} ...")
     audio_waveform = load_audio(args.audio_path, model.dtype, model.device)
+
+    print("generate_emissions...")
     emissions, stride = generate_emissions(
         model, audio_waveform, args.window_size, args.context_size, args.batch_size
     )
+    
+    audio_path = args.audio_path
+    if len(audio_path) < 2:
+        audio_path = "e1.wav"
+    fn = os.path.splitext(audio_path)[0]
+    text_path = fn + ".txt"
 
-    with open(args.text_path, "r") as f:
+    with open(text_path, "r") as f:
         lines = f.readlines()
-    text = "".join(line for line in lines).replace("\n", " ").strip()
+    #text = "".join(line for line in lines).replace("\n", " ").strip()
+    isChar = True
+    retrp =  "¯" if isChar else " ¯ "
+    text = "".join(line for line in lines).replace("\n",retrp).strip()
 
+    print("preprocess_text...")
     tokens_starred, text_starred = preprocess_text(
-        text, args.romanize, args.language, args.split_size, args.star_frequency
+        text, args.romanize, args.language, 
+        split_size= "char" if isChar else args.split_size, 
+        star_frequency = args.star_frequency
     )
 
+    print("get_alignments...")
     segments, scores, blank_id = get_alignments(
         emissions,
         tokens_starred,
@@ -156,25 +173,67 @@ def cli():
 
     spans = get_spans(tokens_starred, segments, tokenizer.decode(blank_id))
 
-    results = postprocess_results(
-        text_starred, spans, stride, scores, args.merge_threshold
-    )
+    # results = postprocess_results(
+    #     text_starred, spans, stride, scores, args.merge_threshold
+    # )
+    # # write the results to a file
+    # with open(f"{os.path.splitext(args.audio_path)[0]}.txt", "w") as f:
+    #     for result in results:
+    #         f.write(f"{result['start']}-{result['end']}: {result['text']}\n")
+    # # write the results to a json file with the whole text and each segment
+    # with open(f"{os.path.splitext(args.audio_path)[0]}.json", "w") as f:
+    #     json.dump(
+    #         {
+    #             "text": text,
+    #             "segments": results,
+    #         },
+    #         f,
+    #         indent=4,
+    #     )
 
-    # write the results to a file
-    with open(f"{os.path.splitext(args.audio_path)[0]}.txt", "w") as f:
-        for result in results:
-            f.write(f"{result['start']}-{result['end']}: {result['text']}\n")
-    # write the results to a json file with the whole text and each segment
-    with open(f"{os.path.splitext(args.audio_path)[0]}.json", "w") as f:
-        json.dump(
-            {
-                "text": text,
-                "segments": results,
-            },
-            f,
-            indent=4,
-        )
+    output_file = os.path.splitext(args.audio_path)[0]
+    word_timestamps = postprocess_results(text_starred, spans, stride, scores)
+    jsonRoot = {
+        "text":text,
+        "segments":word_timestamps,
+    }
 
+    with open(output_file+".json", "w") as f:
+        json.dump(jsonRoot, f, indent=2)
+
+
+    def format_time(seconds):
+        hours = int(seconds / 3600)
+        minutes = int((seconds % 3600) / 60)
+        seconds = seconds % 60
+        return f"{hours:d}:{minutes:02d}:{seconds:05.2f}"
+
+    # Add this new function to convert results to SSA/ASS format
+    def results_to_ssa(results, output_file):
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write("[Script Info]\nScriptType: v4.00+\n\n")
+            f.write("[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
+            f.write("Style: Default,Arial,100,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n")
+            f.write("[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+
+            for sentence in results: 
+                if sentence['words']:
+                    line_start = sentence['words'][0]['start']
+                    line_end = sentence['words'][-1]['end']
+                    line_text = ""
+                    prev_end = line_start
+                    for word in sentence['words']:
+                        # Calculate duration including the interval before the word
+                        duration = word['end'] - prev_end
+                        line_text += f"{{\\k{int(duration * 100):d}}}{word['text']}"
+                        prev_end = word['end']
+                    
+                    f.write(f"Dialogue: 0,{format_time(line_start)},{format_time(line_end)},Default,,0,0,0,,{line_text}\n")
+
+
+
+    results_to_ssa(word_timestamps, output_file+".ass")
+    print(f"Word timestamps saved in SSA/ASS format")
 
 if __name__ == "__main__":
     cli()

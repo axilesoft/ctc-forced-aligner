@@ -2,6 +2,11 @@ import os
 import re
 import subprocess
 import unicodedata
+import uroman as ur
+
+uroman = ur.Uroman()   # load uroman data (takes about a second or so)
+
+
 
 import numpy as np
 
@@ -145,26 +150,38 @@ def normalize_uroman(text):
     return text.strip()
 
 
+
+def get_uroman_tokens_internal(norm_transcripts, iso=None):
+ 
+    s=""
+    for text in norm_transcripts:
+        romanized = uroman.romanize_string(text, lcode=iso) 
+        normalized = normalize_uroman(romanized)
+        s+=normalized+"\n"
+    
+    return s
+
 def get_uroman_tokens(norm_transcripts, iso=None):
-    input_text = "\n".join(norm_transcripts) + "\n"
+    # input_text = "\n".join(norm_transcripts) + "\n"
 
-    assert os.path.exists(os.path.join(UROMAN_PATH, "uroman.pl")), "uroman not found"
+    # assert os.path.exists(os.path.join(UROMAN_PATH, "uroman.pl")), "uroman not found"
 
-    assert not subprocess.call(
-        ["perl", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
-    ), (
-        "Please ensure that a valid perl installation exists,"
-        " you can verify by running `perl --version` in your terminal"
-    )
+    # assert not subprocess.call(
+    #     ["perl", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    # ), (
+    #     "Please ensure that a valid perl installation exists,"
+    #     " you can verify by running `perl --version` in your terminal"
+    # )
 
-    cmd = ["perl", os.path.join(UROMAN_PATH, "uroman.pl")]
-    if iso in special_isos_uroman:
-        cmd.extend(["-l", iso])
+    # cmd = ["perl", os.path.join(UROMAN_PATH, "uroman.pl")]
+    # if iso in special_isos_uroman:
+    #     cmd.extend(["-l", iso])
 
-    result = subprocess.run(
-        cmd, input=input_text, text=True, capture_output=True, check=True
-    )
-    output_text = result.stdout
+    # result = subprocess.run(
+    #     cmd, input=input_text, text=True, capture_output=True, check=True
+    # )
+    # output_text = result.stdout 
+    output_text = get_uroman_tokens_internal(norm_transcripts,iso)
 
     outtexts = []
     for line in output_text.splitlines():
@@ -176,7 +193,8 @@ def get_uroman_tokens(norm_transcripts, iso=None):
 
     uromans = [normalize_uroman(ot) for ot in outtexts]
 
-    return uromans
+   
+    return  uromans
 
 
 def split_text(text: str, split_size: str = "word"):
@@ -248,9 +266,20 @@ def postprocess_results(
     merge_threshold: float = 0.0,
 ):
     results = []
-
+    sentence = []
+    s = ""
     for i, t in enumerate(text_starred):
         if t == "<star>":
+            continue
+        if t == "¯":
+            merge_segments(sentence, merge_threshold)
+            sentence_node = {
+                "text": s,
+                "words": sentence
+            }            
+            results.append(sentence_node)
+            sentence = []
+            s = ""
             continue
         span = spans[i]
         seg_start_idx = span[0].start
@@ -265,7 +294,19 @@ def postprocess_results(
             "text": t,
             "score": score.item(),
         }
-        results.append(sample)
-
-    merge_segments(results, merge_threshold)
+        s += t
+        sentence.append(sample)
+    if sentence:
+        merge_segments(sentence, merge_threshold)
+        sentence_node = {
+            "text": s,
+            "words": sentence
+        }
+        results.append(sentence_node)
+    
+    
     return results
+
+
+
+
