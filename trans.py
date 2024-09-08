@@ -47,6 +47,7 @@ audio_path = "ce.wav"
 text_path = "ce.txt"
 output_file = "output.json"
 output_ass = "output.ass"
+output_lab = "output.lab"
 language = "chi" #"iso" # ISO-639-3 Language code
 
 if len(sys.argv) > 2:
@@ -56,6 +57,7 @@ if len(sys.argv) > 2:
     text_path = fn + ".txt"
     output_file = fn + ".json"
     output_ass = fn + ".ass"
+    output_lab = fn + ".lab"
 isChar = True
 if language in ["jpn", "chi"]:
     isChar= True
@@ -99,8 +101,8 @@ segments, scores, blank_id = get_alignments(
 )
 
 spans = get_spans(tokens_starred, segments, alignment_tokenizer.decode(blank_id))
-
-word_timestamps = postprocess_results(text_starred, spans, stride, scores)
+print("============= SPAN =============")
+word_timestamps, labstr = postprocess_results(text_starred, spans, stride, scores)
 jsonRoot = {
     "text":text,
     "segments":word_timestamps,
@@ -109,8 +111,9 @@ jsonRoot = {
 with open(output_file, "w") as f:
     json.dump(jsonRoot, f, indent=2)
 
-
-
+#write labstr to file
+with open(output_lab, "w") as f:
+    f.write(labstr)
 
 
 results_to_ssa(word_timestamps, output_ass)

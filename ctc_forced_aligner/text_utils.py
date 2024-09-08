@@ -268,6 +268,7 @@ def postprocess_results(
     results = []
     sentence = []
     s = ""
+    labstr=""
     for i, t in enumerate(text_starred):
         if t == "<star>":
             continue
@@ -284,9 +285,15 @@ def postprocess_results(
         span = spans[i]
         seg_start_idx = span[0].start
         seg_end_idx = span[-1].end
-
+        phoneme = ""
+        for c in span: 
+            if not c.label[0]=='<':
+                phoneme += c.label
+        
         audio_start_sec = seg_start_idx * (stride) / 1000
         audio_end_sec = seg_end_idx * (stride) / 1000
+
+        labstr += f"{audio_start_sec*10000000} {audio_end_sec*10000000} {phoneme}\n"
         score = scores[seg_start_idx:seg_end_idx].sum()
         sample = {
             "start": audio_start_sec,
@@ -305,7 +312,7 @@ def postprocess_results(
         results.append(sentence_node)
     
     
-    return results
+    return results, labstr
 
 
 
